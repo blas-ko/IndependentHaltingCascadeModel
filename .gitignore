@@ -1,0 +1,9 @@
+# data
+outputs/
+
+# notebooks
+notebooks/*search.ipynb
+
+# meta
+__pycache__
+.DS_Store

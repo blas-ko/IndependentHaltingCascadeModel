@@ -6,7 +6,7 @@ from scipy.special import comb
 from functools import cache
 
 @cache
-def prob_successful_hire1( N, M, pr, λ, n_ν, type_=1, approx=True):
+def prob_successful_hire( N, M, pr, λ, n_ν, approx=True):
     """Computes probability that the oracle gets a successful hire.
 
     Args:
@@ -21,95 +21,24 @@ def prob_successful_hire1( N, M, pr, λ, n_ν, type_=1, approx=True):
     """    
     
     # Compute the probability to sample a hirable candidate from the given skills model.
-    p_λs, ps_nmax  = pλ_weighted_pdf(λ, n_ν, N)
-    
-    # print("Probs:")
-    # print(p_λs)
-    # print()
-    # print("Weights:")
-    # print(ps_nmax)
-
-    if type_ == 1:
-        # Average proba
-        p_λs = [np.dot( p_λs, ps_nmax )]
-        ps_nmax = np.ones(len(p_λs))
-    elif type_ == 2:
-        pass
-    elif type_ ==3:
-        # weighted proba for each case
-        p_λs = [p * w for p, w in zip(p_λs, ps_nmax)]
-        ps_nmax = np.ones(len(p_λs))
-
-    p_XHK = 0
-    for (p_λ, p_nmax) in zip(p_λs, ps_nmax):
+    p_λs, ps_nmax  = pλ_pdf(λ, n_ν, N)
+    p_λ = np.dot( p_λs, ps_nmax ) # Type 1
+    # Type 2: do nothing and for loop each p_λ
+    # for (p_λ, p_nmax) in zip(p_λs, ps_nmax):
+    # p_XHK += p_nmax * sum( p_XHKs ) 
                         
-        if approx:        
-            L_expected = N*p_λ
-            L_std = np.sqrt( N*p_λ*(1 - p_λ) )
-            L_lower = max(0, int(round(L_expected - 3.0*L_std))) 
-            L_upper = min(int(round(L_expected + 3.0*L_std)), N)        
-            L_bounds = range(L_lower, L_upper+1)
-        else:
-            L_bounds = range(N+1)
+    if approx:        
+        L_expected = N*p_λ
+        L_std = np.sqrt( N*p_λ*(1 - p_λ) )
+        L_lower = max(0, int(round(L_expected - 2.5*L_std))) 
+        L_upper = min(int(round(L_expected + 2.5*L_std)), N)        
+        L_bounds = range(L_lower, L_upper+1)
+    else:
+        L_bounds = range(N+1)
 
-        p_XHKs = [ np.sum([ pX(pr, k) * pK(k, N, M, L) for k in range(L+1)])*pH( L, N, p_λ ) for L in L_bounds ]
-        p_XHK += p_nmax * sum( p_XHKs ) 
-        
+
+    p_XHK = sum( [ np.sum([ pX(pr, k) * pK(k, N, M, L) for k in range(L+1)])*pH( L, N, p_λ ) for L in L_bounds ] )        
     return p_XHK
-    
-# def prob_successful_hire( N, M, pr, λ, n_ν, type=1, approx=True):
-#     """Computes probability that the oracle gets a successful hire.
-
-#     Args:
-#         N (int): Number of users in full population
-#         M (int): Number of users reachable by the oracle
-#         pr (int): Probability of successful recommendation
-#         n_ν (int): Specificity of the vacancy requirements
-#         approx (bool, optional): Whether to approximate the probability by the most common values. Defaults to True.
-
-#     Returns:
-#         float: probability that the oracle gets a successful hire for the given inputs.
-#     """    
-#     if weighted:
-#         p_λ  = pλ_weighted_pdf(λ, n_ν, N)
-#     else:
-#         p_λ  = pλ(λ, n_ν, N)
-
-#     # if nmax_dist is None:        
-#     #     p_λ  = pλ(λ, n_ν, N)
-#     #     # p_λ_mean = np.mean(p_λ)
-#     # else:
-#     #     p_λ  = pλ_weighted(λ, n_ν, nmax_dist)
-#     #     # p_λ_mean = sum( [ p_λ[i] * w for (i,w) in enumerate(nmax_dist.values) ] )
-    
-#     if approx:        
-#         L_expected = N*p_λ
-#         L_std = np.sqrt( N*p_λ*(1 - p_λ) )
-#         L_lower = max(0, int(round(L_expected - 2.5*L_std))) 
-#         L_upper = min(int(round(L_expected + 2.5*L_std)), N)        
-#         L_bounds = range(L_lower, L_upper+1)
-#     else:
-#         L_bounds = range(N+1)
-    
-#     if nmax_dist is None:
-#         p_XHKs = [ np.sum([ pX(pr, k) * pK(k, N, M, L) for k in range(L+1)])*pH( L, N, p_λ ) for L in L_bounds ]
-#         return sum(p_XHKs)    
-#     else:        
-#         p_XHK = 0        
-#         for L in L_bounds:
-
-#             p_H = 0
-#             for i, weight in enumerate( nmax_dist.values ):
-#                 p_H += pH( L, N, p_λ[i] ) * weight
-            
-#             p_XKs = 0
-#             for k in range(L+1):
-#                 # if j == 0: # to avoid extra computations
-#                 #     p_X = pX(pr, k)
-#                 p_XKs += pX(pr, k) * pK(k, N, M, L)
-
-#             p_XHK += p_XKs * p_H
-#         return p_XHK
 
 @cache
 def pX( pr, k ):
@@ -168,58 +97,14 @@ def pH( L, N, p_λ, ):
     return binom.pmf(L, N, p_λ)
 
 @cache
-def pλ( λ, n_ν, N ):
-    """Returns probability of filling a skillset of n_ν requirements from a population of N users
-    sampling their n_skills ~ Poisson(λ) and Given nmax = CI( Poisson(1 - 1/N, λ) ).
+def pλ_pdf( λ, n_ν, N ):
+    """Returns probability dist of filling a skillset of n_ν requirements from a population of N users
+    sampling their n_skills ~ Poisson(λ) and nmax ~ P( max(n_skills) = n_m ).
 
     Returns:
-        float: probability
-    """    
-    
-    # Compute the maximum number of skills based on the confidence interval of the number of nodes
-    nmax = int(max( poisson.interval( 1 - 1/N, λ ) ))
-
-    # Compute skill inclusion probability as the weighted sum of drawing each possible number of skills from a poisson
-    skill_inclusion_prob = 0
-    for l in range(nmax+1):
-        skill_inclusion_prob += poisson.pmf(l, λ) * comb(l, n_ν) #* choose(nmax - l, l - n_ν)
-
-    # Normalize by the number of counts
-    skill_inclusion_prob /= comb(nmax, n_ν) # nmax - 0.1?
-
-    return skill_inclusion_prob
-
-# def pλ_weighted( λ, n_ν, nmax_dist ):
-#     """Returns probability of filling a skillset of n_ν requirements from a population of N users
-#     sampling their n_skills ~ Poisson(λ) and Given nmax = CI( Poisson(1 - 1/N, λ) ).
-
-#     Returns:
-#         float: probability
-#     """    
-        
-#     # Compute skill inclusion probability as the weighted sum of drawing each possible number of skills from a poisson    
-#     skill_inclusion_probs = np.zeros( len(nmax_dist) )
-
-#     # Compute the maximum number of skills based on the confidence interval of the number of nodes
-#     for (i, (nmax, weight)) in enumerate( nmax_dist.items() ):
-    
-#         for l in range(nmax+1):
-#             skill_inclusion_probs[i] += poisson.pmf(l, λ) * comb(l, n_ν) #* choose(nmax - l, l - n_ν)
-
-#         # Normalize by the number of counts
-#         skill_inclusion_probs[i] *= weight / comb(nmax, n_ν) # * weight # nmax - 0.1?
-
-#     # Return the weighted sum
-#     return sum(skill_inclusion_probs)
-
-@cache
-def pλ_weighted_pdf( λ, n_ν, N ):
-    """Returns probability of filling a skillset of n_ν requirements from a population of N users
-    sampling their n_skills ~ Poisson(λ) and Given nmax = CI( Poisson(1 - 1/N, λ) ).
-
-    Returns:
-        float: probability
-    """    
+        list[float]: probability dist of p_λ for different n_max
+        list[float]: probability dist of n_max
+    """
         
     # Compute skill inclusion probability as the weighted sum of drawing each possible number of skills from a poisson    
     n_max_range = range(5, 25) # for N=5000, most mass is between 10 and 12 and changes very slowly with N.
@@ -230,7 +115,8 @@ def pλ_weighted_pdf( λ, n_ν, N ):
     for (i, nmax) in enumerate( n_max_range ):
     
         for l in range(nmax+1):
-            skill_inclusion_probs[i] += poisson.pmf(l, λ) * comb(l, n_ν) #* choose(nmax - l, l - n_ν)
+            skill_inclusion_probs[i] += poisson.pmf(l, λ) * comb(l, n_ν)
+            # skill_inclusion_probs[i] += poisson.pmf(l, λ) * ( comb(nmax - n_ν, nmax - l) / comb(nmax, l) )
         
         # Normalize by the number of counts
         skill_inclusion_probs[i] /= comb(nmax, n_ν)
@@ -243,7 +129,8 @@ def pλ_weighted_pdf( λ, n_ν, N ):
 
     return skill_inclusion_probs[prob_indexes], nmax_probs[prob_indexes]
 
-def highest_probabilities_indices(prob_dist, mass_threshold=0.995):
+## helpers
+def highest_probabilities_indices(prob_dist, mass_threshold=0.99):
     prob_dist = np.array(prob_dist)
     sorted_indices = np.argsort(prob_dist)[::-1]  # Sort indices based on probabilities in descending order
     # sorted_probs = np.sort(prob_dist)[::-1]  # Sort probabilities in descending order
@@ -257,37 +144,6 @@ def highest_probabilities_indices(prob_dist, mass_threshold=0.995):
             break
     
     return selected_indices
-
-
-
-# def pλ_weighted_pdf( λ, n_ν, N ):
-#     """Returns probability of filling a skillset of n_ν requirements from a population of N users
-#     sampling their n_skills ~ Poisson(λ) and Given nmax = CI( Poisson(1 - 1/N, λ) ).
-
-#     Returns:
-#         float: probability
-#     """    
-        
-#     # Compute skill inclusion probability as the weighted sum of drawing each possible number of skills from a poisson    
-#     n_max_range = range(5, 25) # for N=5000, most mass is between 10 and 12 and changes very slowly with N.
-#     skill_inclusion_probs = np.zeros( len(n_max_range) )
-#     nmax_prob = []
-
-#     # Compute the maximum number of skills based on the confidence interval of the number of nodes
-#     for (i, nmax) in enumerate( n_max_range ):
-    
-#         for l in range(nmax+1):
-#             skill_inclusion_probs[i] += poisson.pmf(l, λ) * comb(l, n_ν) #* choose(nmax - l, l - n_ν)
-
-#         # Normalize by the number of counts
-#         nmax_prob = nmax_pdf(nmax, λ, N)
-#         skill_inclusion_probs[i] *= nmax_prob / comb(nmax, n_ν)
-
-#     # Return the weighted sum
-#     return skill_inclusion_probs, nmax_probs
-#     # return sum(skill_inclusion_probs)
-
-## helpers
 
 # Weighting of p_lambda: exact probability distribution of n_max according to extreme value theory
 def nmax_cdf(n_max, λ, n_samples):
@@ -316,17 +172,3 @@ def choose(n,k):
         for i in range(1,k+1):
             p *= Fraction(n - i + 1, i)
         return int(p)
-
-# Cumulative probability of pK
-# def pKs(k,N,M,L):
-
-#     if M == 0:
-#         return 0
-#     elif M == N:
-#         return 1
-#     else:    
-#         prob = 1
-#         for k_ in range(k):
-#             prob -= pK( k_, N,M,L )
-    
-#         return prob

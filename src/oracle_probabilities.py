@@ -4,8 +4,9 @@ from scipy.stats import poisson
 from scipy.stats import binom
 from scipy.special import comb
 from functools import cache
+# from tqdm import tqdm
 
-@cache
+# @cache
 def prob_successful_hire( N, M, pr, λ, n_ν, approx=True):
     """Computes probability that the oracle gets a successful hire.
 
@@ -22,22 +23,48 @@ def prob_successful_hire( N, M, pr, λ, n_ν, approx=True):
     
     # Compute the probability to sample a hirable candidate from the given skills model.
     p_λs, ps_nmax  = pλ_pdf(λ, n_ν, N)
-    p_λ = np.dot( p_λs, ps_nmax ) # Type 1
-    # Type 2: do nothing and for loop each p_λ
-    # for (p_λ, p_nmax) in zip(p_λs, ps_nmax):
-    # p_XHK += p_nmax * sum( p_XHKs ) 
+    p_λ = np.dot( p_λs, ps_nmax )
                         
     if approx:        
-        L_expected = N*p_λ
-        L_std = np.sqrt( N*p_λ*(1 - p_λ) )
-        L_lower = max(0, int(round(L_expected - 2.5*L_std))) 
-        L_upper = min(int(round(L_expected + 2.5*L_std)), N)        
+        L_expected = N*p_λ # Comes from pH being a binomial distribution
+        L_std = np.sqrt( N*p_λ*(1 - p_λ) ) # Comes from pH being a binomial distribution
+        nstd = 3
+        L_lower = max(0, int(round(L_expected - nstd*L_std))) 
+        L_upper = min(N, int(round(L_expected + nstd*L_std)))
+        L_upper = max(1, L_upper) # If L = 1, the range is a single point, so make it at least 2
         L_bounds = range(L_lower, L_upper+1)
     else:
         L_bounds = range(N+1)
 
+    p_XHK = 0
+    for i,L in enumerate(L_bounds):
+        
+        if approx:
+            ## OBS: This is right only for the C(L,k) term, but it doesn't dominate in the product C(L,k) C(N-L, M-k) present in p_K.
+            # k_expected = L/2 # Comes from binomial coefficient having mean L/2
+            # k_std = np.sqrt(L)/2 # binomial coefficient is equivalent to binomial dist with p = 0.5
+            # k_lower = max(0, int(np.floor( k_expected - 2.5*k_std ))) 
+            # k_upper = min(L, int(np.ceil( k_expected + 2.5*k_std )))
 
-    p_XHK = sum( [ np.sum([ pX(pr, k) * pK(k, N, M, L) for k in range(L+1)])*pH( L, N, p_λ ) for L in L_bounds ] )        
+            # This seems to be the resulting peak in the p_K distribution, centered on \rho * L somehow
+            # TODO: Check the theory behind
+            r = M/N
+            k_expected = r*L
+            k_std = np.sqrt(r*L/2)
+            nstd = 3
+            k_lower = max(0, int(np.floor( k_expected - nstd*k_std ))) 
+            k_upper = min(L, int(np.ceil( k_expected + nstd*k_std )))
+            k_bounds = range(k_lower, k_upper+1) 
+        else:
+            k_bounds = range(L + 1)
+
+        p_XK = 0.0
+        for k in k_bounds:
+            p_XK += pX(pr, k) * pK(k, N, M, L)
+
+        p_XHK += p_XK * pH( L, N, p_λ )
+
+    # p_XHK = sum( [ np.sum([ pX(pr, k) * pK(k, N, M, L) for k in range(L+1)])*pH( L, N, p_λ ) for L in L_bounds ] )        
     return p_XHK
 
 @cache
@@ -65,7 +92,8 @@ def pK(k,N,M,L):
 
     Returns:
         float: probability
-    """    
+    """
+    # TODO: Investigate a faster way to compute this. This is the main bottleneck
 
     if k == L:
         return choose(M, L) / choose(N,L)
@@ -106,23 +134,29 @@ def pλ_pdf( λ, n_ν, N ):
         list[float]: probability dist of n_max
     """
         
-    # Compute skill inclusion probability as the weighted sum of drawing each possible number of skills from a poisson    
+    # Compute skill inclusion probability as the weighted sum of drawing each possible number of skills from a poisson
+    # TODO: Make this range more principled based on λ, n_ν, and N
     n_max_range = range(5, 25) # for N=5000, most mass is between 10 and 12 and changes very slowly with N.
     skill_inclusion_probs = np.zeros( len(n_max_range) )
     nmax_probs = np.zeros( len(n_max_range) )
 
     # Compute the maximum number of skills based on the confidence interval of the number of nodes
     for (i, nmax) in enumerate( n_max_range ):
-    
-        for l in range(nmax+1):
-            skill_inclusion_probs[i] += poisson.pmf(l, λ) * comb(l, n_ν)
-            # skill_inclusion_probs[i] += poisson.pmf(l, λ) * ( comb(nmax - n_ν, nmax - l) / comb(nmax, l) )
-        
-        # Normalize by the number of counts
-        skill_inclusion_probs[i] /= comb(nmax, n_ν)
 
-        # Add nmax prob
-        nmax_probs[i] =  nmax_pdf(nmax, λ, N) 
+        if nmax >= n_ν:
+            for l in range(nmax+1):
+                skill_inclusion_probs[i] += poisson.pmf(l, λ) * comb(l, n_ν)
+                # skill_inclusion_probs[i] += poisson.pmf(l, λ) * ( comb(nmax - n_ν, nmax - l) / comb(nmax, l) )
+                # skill_inclusion_probs[i] += poisson.pmf(l, λ) * ( comb(n_ν, l) * comb(n, l) comb(nmax - n_ν, nmax - l) ) / comb(nmax, n_ν)            
+            
+            # Normalize by the number of counts
+            skill_inclusion_probs[i] /= comb(nmax, n_ν)
+            # Add nmax prob
+            nmax_probs[i] =  nmax_pdf(nmax, λ, N)
+
+        else:            
+            skill_inclusion_probs[i] = 0.0
+            nmax_probs[i] = nmax_pdf(nmax, λ, N)
 
     # Return highest probabilities so that 98% of the probability mass is contained
     prob_indexes = highest_probabilities_indices(nmax_probs)
@@ -133,7 +167,6 @@ def pλ_pdf( λ, n_ν, N ):
 def highest_probabilities_indices(prob_dist, mass_threshold=0.99):
     prob_dist = np.array(prob_dist)
     sorted_indices = np.argsort(prob_dist)[::-1]  # Sort indices based on probabilities in descending order
-    # sorted_probs = np.sort(prob_dist)[::-1]  # Sort probabilities in descending order
     
     cumulative_sum = 0.0
     selected_indices = []
@@ -172,3 +205,95 @@ def choose(n,k):
         for i in range(1,k+1):
             p *= Fraction(n - i + 1, i)
         return int(p)
+    
+
+###### APPROXIMATIONS 
+def prob_successful_hire_approx( N, M, pr, λ, n_ν, approx=True):
+    """Computes probability that the oracle gets a successful hire.
+
+    Args:
+        N (int): Number of users in full population
+        M (int): Number of users reachable by the oracle
+        pr (int): Probability of successful recommendation
+        n_ν (int): Specificity of the vacancy requirements
+        approx (bool, optional): Whether to approximate the probability by the most common values. Defaults to True.
+
+    Returns:
+        float: probability that the oracle gets a successful hire for the given inputs.
+    """    
+    
+    # Compute the probability to sample a hirable candidate from the given skills model.
+    p_λs, ps_nmax  = pλ_pdf(λ, n_ν, N)
+    p_λ = np.dot( p_λs, ps_nmax )
+                        
+    if approx:        
+        L_expected = N*p_λ # Comes from pH being a binomial distribution
+        L_std = np.sqrt( N*p_λ*(1 - p_λ) ) # Comes from pH being a binomial distribution
+        nstd = 2.5
+        L_lower = max(0, int(round(L_expected - nstd*L_std))) 
+        L_upper = min(N, int(round(L_expected + nstd*L_std)))
+        L_upper = max(1, L_upper) # If L = 1, the range is a single point, so make it at least 2
+        L_bounds = range(L_lower, L_upper+1)
+    else:
+        L_bounds = range(N+1)
+
+    p_XHK = 0
+    for i,L in enumerate(L_bounds):
+        
+        if approx:
+            ## OBS: This is right only for the C(L,k) term, but it doesn't dominate in the product C(L,k) C(N-L, M-k) present in p_K.
+            # k_expected = L/2 # Comes from binomial coefficient having mean L/2
+            # k_std = np.sqrt(L)/2 # binomial coefficient is equivalent to binomial dist with p = 0.5
+            # k_lower = max(0, int(np.floor( k_expected - 2.5*k_std ))) 
+            # k_upper = min(L, int(np.ceil( k_expected + 2.5*k_std )))
+
+            # This seems to be the resulting peak in the p_K distribution, centered on \rho * L somehow
+            # TODO: Check the theory behind
+            r = M/N
+            k_expected = r*L
+            k_std = np.sqrt(r*L/2)
+            nstd = 2.5
+            k_lower = max(0, int(np.floor( k_expected - nstd*k_std ))) 
+            k_upper = min(L, int(np.ceil( k_expected + nstd*k_std )))
+            k_bounds = range(k_lower, k_upper+1) 
+        else:
+            k_bounds = range(L + 1)
+
+        p_XK = 0.0
+        for k in k_bounds:
+            p_XK += pX(pr, k) * pK_approx(k, N, M, L)
+
+        p_XHK += p_XK * pH( L, N, p_λ )
+
+    # p_XHK = sum( [ np.sum([ pX(pr, k) * pK(k, N, M, L) for k in range(L+1)])*pH( L, N, p_λ ) for L in L_bounds ] )        
+    return p_XHK
+
+def pK_approx(k,N,M,L):
+    """Probability that the intersection of M and L random elements of a set of N elements is k.
+
+    Args:
+        k (int): Desired size of the intersection of sets of size M and L
+        N (int): Size of universal set
+        M (int): Size of one subset
+        L (int): Size of other subset 
+
+    Returns:
+        float: probability
+    """
+    return np.exp( comb_log_approx(L,k) + comb_log_approx(N-L, M-k) - comb_log_approx(N,M) )
+    
+# helpers
+@cache
+def factorial_log_approx(n):
+    return 0.5*( np.log( 2*np.pi*n ) ) + n*(np.log(n) - 1)
+
+def comb_log_approx(n,k, tol=1e-3):
+    if (k > n) | (k < 0) | (n < 0):
+        return -np.inf
+    elif (k == n) | (n == 0) | (k == 0):
+        return 0
+    elif (k/n < tol) | ((n-k)/n < tol): # if k is very close to the extreme, compute the exact combinatoric
+        # return np.log( comb(n,k) ) # no need to make it exact, as k small makes it manageable
+        return np.log( choose(n,k) ) # no need to make it exact, as k small makes it manageable
+    else:
+        return ( factorial_log_approx(n) - factorial_log_approx(k) - factorial_log_approx(n-k) )

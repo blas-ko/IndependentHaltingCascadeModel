@@ -1,8 +1,9 @@
 # data
-outputs/
+results/
 
 # notebooks
 */.ipynb_checkpoints
+*-checkpoint.py
 notebooks/*search.ipynb
 notebooks/dev/
 

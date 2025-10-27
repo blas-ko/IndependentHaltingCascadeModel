@@ -1,5 +1,7 @@
 # IndependentHaltingCascadeModel
+[![DOI](https://img.shields.io/badge/DOI-10.1234/SOON-blue.svg)](https://doi.org/10.1234/abcde)
 [![arXiv](https://img.shields.io/badge/arXiv-2206.14501-b31b1b.svg)](https://arxiv.org/abs/2410.09698)
+
 
 ## Overview
 
